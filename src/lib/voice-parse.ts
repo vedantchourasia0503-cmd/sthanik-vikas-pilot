@@ -44,8 +44,8 @@ function numbersIn(text: string): number[] {
   const re = /(\d+(?:\.\d+)?)\s*(hundred|thousand|hazaar|hajar|हज़ार|हजार|सौ|k)?/gi;
   let m: RegExpExecArray | null;
   while ((m = re.exec(text))) {
-    let v = parseFloat(m[1]);
-    const unit = m[2]?.toLowerCase();
+    let v = parseFloat(m[1] ?? "0");
+    const unit = (m[2] ?? "").toLowerCase();
     if (unit) v *= unit === "k" ? 1000 : (WORD_NUM[unit] ?? 1);
     if (v >= 20) out.push(v);
   }
@@ -59,35 +59,44 @@ export function parseVoice(raw: string): ParsedVoice {
   const nameMatch =
     text.match(/(?:my name is|name is|i am|myself)\s+([A-Za-z\u0900-\u097F]+(?:\s[A-Za-z\u0900-\u097F]+)?)/i) ||
     text.match(/(?:मेरा नाम|नाम)\s+([\u0900-\u097F]+(?:\s[\u0900-\u097F]+)?)/);
-  if (nameMatch) res.name = nameMatch[1].replace(/\s*(है|hai)$/i, "").trim();
+  const rawName = nameMatch?.[1];
+  if (rawName) res.name = rawName.replace(/\s*(है|hai)$/i, "").trim();
 
   for (const [re, label] of TYPES) if (re.test(text)) { res.businessType = label; break; }
 
   const city = CITIES.find((c) => new RegExp(`(^|\\s)${c}`, "i").test(text));
   if (city) res.city = city;
 
-  // Expense phrase near "expense/kharch/खर्च"
   const expMatch = text.match(
     /(?:expense|expenses|cost|spend|kharch|खर्च|खर्चा)[^\d]{0,20}(\d+(?:\.\d+)?)\s*(thousand|hazaar|हज़ार|हजार|k)?/i,
   );
   const incMatch = text.match(
     /(?:income|earn|earning|profit|sale|sales|kamata|kamai|कमा\S*|आय|बिक्री)[^\d]{0,20}(\d+(?:\.\d+)?)\s*(thousand|hazaar|हज़ार|हजार|k)?/i,
   );
-  const scale = (u?: string) => (u ? (u.toLowerCase() === "k" ? 1000 : (WORD_NUM[u.toLowerCase()] ?? 1)) : 1);
+  const scale = (u: string | undefined) => {
+    const unit = (u ?? "").toLowerCase();
+    if (!unit) return 1;
+    return unit === "k" ? 1000 : (WORD_NUM[unit] ?? 1);
+  };
 
-  if (incMatch) res.dailyIncome = parseFloat(incMatch[1]) * scale(incMatch[2]);
-  if (expMatch) res.dailyExpense = parseFloat(expMatch[1]) * scale(expMatch[2]);
+  let income: number | undefined;
+  let expense: number | undefined;
+  if (incMatch) income = parseFloat(incMatch[1] ?? "0") * scale(incMatch[2]);
+  if (expMatch) expense = parseFloat(expMatch[1] ?? "0") * scale(expMatch[2]);
 
-  if (res.dailyIncome === undefined || res.dailyExpense === undefined) {
+  if (income === undefined || expense === undefined) {
     const nums = numbersIn(text);
-    if (nums.length >= 2) {
-      const sorted = [...nums].sort((a, b) => b - a);
-      if (res.dailyIncome === undefined) res.dailyIncome = sorted[0];
-      if (res.dailyExpense === undefined) res.dailyExpense = sorted[1];
-    } else if (nums.length === 1 && res.dailyIncome === undefined) {
-      res.dailyIncome = nums[0];
+    const sorted = [...nums].sort((a, b) => b - a);
+    if (sorted.length >= 2) {
+      if (income === undefined) income = sorted[0];
+      if (expense === undefined) expense = sorted[1];
+    } else if (sorted.length === 1 && income === undefined) {
+      income = sorted[0];
     }
   }
+
+  if (income !== undefined) res.dailyIncome = income;
+  if (expense !== undefined) res.dailyExpense = expense;
 
   return res;
 }
